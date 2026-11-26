@@ -55,8 +55,10 @@
 #   __param     module_param()s keep working under the new module name; a
 #               wrapper that re-declares one gets a duplicate parameter.
 #
-# Every output also needs a .<out>.o.cmd stub next to it (see CLAUDE.md);
-# this script writes one.
+# openhisilicon writes a .<out>.cmd stub next to the output; here the output
+# is committed as <mod>.o_shipped instead (Kbuild's own rule copies it to
+# <mod>.o, and "make clean" does not delete it), so no stub is needed:
+#   scripts/ko2obj.sh <objcopy> i2m mi_sys.ko kernel/obj/infinity2m/mi_sys.o_shipped
 set -e
 
 [ $# -eq 4 ] || { sed -n '2,4p' "$0" >&2; exit 1; }
@@ -126,8 +128,3 @@ done
 	--redefine-sym init_module=_${PREFIX}_${mod}_init \
 	--redefine-sym cleanup_module=_${PREFIX}_${mod}_exit \
 	"$IN" "$OUT"
-
-# kernel/obj/<chiparch>/... relative to the repo, for the savedcmd line
-rel=$(realpath --relative-to="$(dirname "$0")/.." "$OUT")
-rel=${rel#kernel/}
-printf 'savedcmd_kernel/%s := :\n' "$rel" > "$(dirname "$OUT")/.$(basename "$OUT").cmd"

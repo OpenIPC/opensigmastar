@@ -5,6 +5,3 @@
 .tmp_versions/
 Module.symvers
 modules.order
-# the vendor objects scripts/ko2obj.sh made, and their .cmd stubs
-!kernel/obj/**/*.o
-!kernel/obj/**/.*.o.cmd

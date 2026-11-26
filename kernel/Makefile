@@ -5,4 +5,4 @@ all:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) CHIPARCH=$(CHIPARCH) modules
 
 clean:
-	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
+	$(MAKE) -C $(KDIR) M=$(CURDIR) CHIPARCH=$(CHIPARCH) clean
