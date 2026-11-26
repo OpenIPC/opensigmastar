@@ -37,7 +37,7 @@ The whole media stack an SSR621Q NVR loads, in this order:
 
 | Module | Kind | What it is |
 |--------|------|------------|
-| `open_mhal.ko` | relinked | MHAL: display, GOP/regions, panel, GE, DIVP, CMDQ, audio, JPEG/H.264/H.265 encoder HALs |
+| `open_mhal.ko` | relinked + display/panel/regions from source | MHAL: display, GOP/regions, panel (these three from SigmaStar's source, below), GE, DIVP, CMDQ, audio, JPEG/H.264/H.265 encoder HALs |
 | `open_mi_common.ko`, `open_mi_sys.ko` | relinked | MI core, buffers, binding |
 | `open_mi_ao.ko`, `open_mi_gfx.ko`, `open_mi_divp.ko`, `open_mi_vdec.ko`, `open_mi_ai.ko`, `open_mi_ipu.ko`, `open_mi_disp.ko`, `open_mi_venc.ko`, `open_mi_panel.ko` | relinked | MI modules (the SDK's `.mods_depend` order); each makes `/dev/mi_<x>` |
 | `open_fbdev.ko` | relinked | GOP framebuffer, `/dev/fb0` (`default_config_path_file=/config/fbdev.ini`) |
@@ -70,16 +70,19 @@ relocations are unchanged.
 | Module | CHIPARCH | What it is | Source |
 |--------|----------|------------|--------|
 | `open_hdmitx.ko` | infinity2m | HDMI transmitter driver: the `sstar,hdmitx` platform driver, exporting the `MhalHdmitx*` API the vendor's `mi_hdmi` calls. The i2m NVR SDK's `mhal.ko` has no HDMI TX. | SigmaStar, `boot_621_release_20200522` `drivers/mstar/hdmitx`, its Linux OS layer (`kernel/hdmitx`) |
+| `open_mhal.ko` (part) | infinity2m | Display (`MHAL_DISP_*`), panel (`MhalPnl*`) and regions/GOP (`MHAL_RGN_*`) HALs with their Linux OS layers, linked into the relinked `mhal` in place of the SDK's own copies; see [docs/infinity2m.md](docs/infinity2m.md). | SigmaStar, `boot_621_release_20200522` `drivers/mstar/{disp,panel,rgn,common}` (`kernel/disp`, `kernel/panel`, `kernel/rgn`, `kernel/common`) |
 | `open_hdmi.ko` | infinity2m | Switches the HDMI output on through that API, from sysfs: `/sys/kernel/open_hdmi/output` (write `1080p60`, `1080p50`, `720p60`, `720p50`, `1024x768p60`, `1280x1024p60`, `1440x900p60` or `off`), `hpd`, `edid`. Parameters `output=` (on at load) and `color=yuv444\|rgb444`. | this repository (`kernel/hdmi`) |
 
-The display itself (MI_DISP) still comes from the SDK's `mhal.ko` and
-`mi_disp.ko`. Start the display first, then write the same timing to
+MI_DISP itself (`mi_disp.ko`) is still the SDK's; the display HAL under it
+is now from source. Start the display first, then write the same timing to
 `open_hdmi/output`.
 
 ## Build
 
-`scripts/ko2obj.sh` made `kernel/obj/<CHIPARCH>/*.o`; it is only needed to
-add a module. Against an OpenIPC SigmaStar kernel tree that has been built:
+`scripts/ko2obj.sh` made `kernel/obj/<CHIPARCH>/*.o_shipped`; it is only
+needed to add a module. `scripts/weaken.sh` runs during the build: it lets
+the disp/panel/rgn source objects replace their vendor copies inside
+`open_mhal.ko` ([docs/infinity2m.md](docs/infinity2m.md)). Against an OpenIPC SigmaStar kernel tree that has been built:
 
 ```sh
 make -C kernel KDIR=<kernel> CHIPARCH=infinity2m \
@@ -109,6 +112,11 @@ where an NVR application decodes four cameras (H.264 and H.265) to the
 display with it, as with the SDK's own `.ko` files. The machine does not
 model the HDMI transmitter's signal, and **nothing has run on hardware** yet.
 
+The display, panel and region parts of `open_mhal.ko` come from source
+(boot release, 2020-05) and run the same NVR scene in that machine; how they
+are combined with the SDK's `mhal` (2020-03) and what was checked is in
+[docs/infinity2m.md](docs/infinity2m.md).
+
 iford and ifliegen build against the SDK kernels and match the SDK's
 prebuilt modules (exported and undefined symbols, vermagic, parameters). In
 qemu-bench's `ssc029` the Iford set runs the SDK's `preview` (sensor, VIF,
@@ -117,12 +125,9 @@ modules; in `ssc034a`/`ssc034b` the Ifliegen set gives byte-identical
 `venc_demo` H.264 and H.265 output, and loads and unloads cleanly. Not run on
 hardware.
 
-Candidates for later: the same boot release carries the Linux OS layers of
-`disp`, `panel` and `rgn`. On infinity2m those are inside the SDK's
-`mhal.ko`, so rebuilding them means replacing that blob.
-
 ## License
 
 The repository is GPL-3.0 (`LICENSE`). `kernel/hdmi` is GPL-2.0, as a
-kernel module. The vendor sources under `kernel/hdmitx` and the headers
+kernel module. The vendor sources under `kernel/hdmitx`,
+`kernel/disp`, `kernel/panel`, `kernel/rgn` and `kernel/common` and the headers
 under `include/` keep SigmaStar's own notices.

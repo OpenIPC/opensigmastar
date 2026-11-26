@@ -8,10 +8,22 @@
 # kernel/init/infinity2m/<mod>_init.c, so they carry this kernel's vermagic
 # and struct module. Load order: open_mhal, open_mi_common, open_mi_sys, then
 # the others (the SDK's .mods_depend), open_fbdev last.
-I2M_BLOBS := mhal mi_common mi_sys mi_ao mi_gfx mi_divp mi_vdec mi_ai \
+# open_mhal.ko also carries display, panel and regions from source (below).
+I2M_BLOBS := mi_common mi_sys mi_ao mi_gfx mi_divp mi_vdec mi_ai \
 	mi_ipu mi_disp mi_venc mi_panel fbdev
 $(foreach m,$(I2M_BLOBS),$(eval obj-m += $(PREFIX)$(m).o) \
 	$(eval $(PREFIX)$(m)-y := obj/infinity2m/$(m).o init/infinity2m/$(m)_init.o))
+
+SS := $(srctree)/drivers/sstar
+
+# Each group of vendor sources gets its include paths per object
+# (CFLAGS_<basename>.o): hdmitx and disp/panel/rgn bring different headers
+# under the same names and different forced includes.
+per-object-cflags = $(foreach o,$(1),$(eval CFLAGS_$(notdir $(o)) += $(2)))
+
+# vendor code, built as released: its warnings are not ours to fix here
+ccflags-y += -w
+
 #
 # open_hdmitx.ko: the HDMI transmitter driver, SigmaStar's own source from
 # the SSR621 boot release (boot_621_release_20200522, drivers/mstar/hdmitx,
@@ -21,7 +33,6 @@ $(foreach m,$(I2M_BLOBS),$(eval obj-m += $(PREFIX)$(m).o) \
 
 HDMITX := hdmitx
 HAL := $(HDMITX)/hal/infinity2m
-SS := $(srctree)/drivers/sstar
 
 HDMITX_CFLAGS := \
 	-I$(src)/$(HDMITX)/drv/hdmitx/inc -I$(src)/$(HDMITX)/drv/hdmitx/inc/linux \
@@ -41,9 +52,6 @@ HDMITX_CFLAGS += \
 	-Dmstar_gpio_to_irq=camdriver_gpio_to_irq \
 	-Dmstar_gpio_direction_input=camdriver_gpio_direction_input \
 	-Dmstar_gpio_direction_output=camdriver_gpio_direction_output
-ccflags-y += $(HDMITX_CFLAGS)
-# vendor code, built as released: its warnings are not ours to fix here
-ccflags-y += -w
 
 obj-m += $(PREFIX)hdmitx.o
 $(PREFIX)hdmitx-y := \
@@ -62,7 +70,107 @@ $(PREFIX)hdmitx-y := \
 	$(HAL)/hdmitx/halHDCPTx.o \
 	$(HAL)/hdcp/halHDCP.o \
 	$(HAL)/src/hal_hdmitx_if.o
+$(call per-object-cflags,$($(PREFIX)hdmitx-y),$(HDMITX_CFLAGS))
 
 obj-m += $(PREFIX)hdmi.o
 $(PREFIX)hdmi-y := hdmi/open_hdmi.o
-CFLAGS_open_hdmi.o := -Wall
+CFLAGS_open_hdmi.o := $(HDMITX_CFLAGS) -Wall
+
+#
+# open_mhal.ko: the SDK's mhal.ko with its display (disp), panel and region
+# (rgn: GOP, OSD, cover) parts from SigmaStar's own source, the same boot
+# release as hdmitx (drivers/mstar/{disp,panel,rgn}, their Linux OS layers).
+# The source objects are linked next to the vendor object, in which
+# scripts/weaken.sh has made every global the source objects also define
+# weak, so each reference -- camdriver_init's calls to _DrvDispModuleInit and
+# _DrvPnlModuleInit, the vendor __ksymtab entries for MHAL_DISP_*, MHAL_RGN_*
+# and MhalPnl* -- resolves to the source. The vendor's own copies stay in the
+# module, unreferenced. See docs/infinity2m.md.
+DISP := disp
+PNL := panel
+RGN := rgn
+MHAL_GLUE := mhal/infinity2m
+
+MHAL_SRC_CFLAGS := \
+	-include $(src)/$(MHAL_GLUE)/no_export.h \
+	-I$(src)/$(MHAL_GLUE) -I$(src)/common \
+	-I$(SS)/include -I$(SS)/include/infinity2m \
+	-I$(SS)/cam_os_wrapper/pub -I$(SS)/cam_sysfs/pub
+
+# drv_disp_module.c is left out: its module_init (a platform driver whose
+# probe repeats _DrvDispModuleInit) is a dead initcall in the vendor mhal too.
+DISP_CFLAGS := $(MHAL_SRC_CFLAGS) \
+	-I$(src)/$(DISP)/drv/disp/inc -I$(src)/$(DISP)/drv/disp/inc/linux \
+	-I$(src)/$(DISP)/drv/disp/pub -I$(src)/$(DISP)/drv/midisp/pub \
+	-I$(src)/$(DISP)/hal/infinity2m/inc -I$(src)/$(DISP)/hal/infinity2m/pub \
+	-I$(src)/$(DISP)/hal/pub \
+	-DHDMITX_VGA_SUPPORTED
+DISP_OBJS := \
+	$(DISP)/drv/disp/src/drv_disp_ctx.o \
+	$(DISP)/drv/disp/src/drv_disp_if.o \
+	$(DISP)/drv/disp/src/drv_disp_irq.o \
+	$(DISP)/drv/disp/src/linux/disp_module.o \
+	$(DISP)/drv/disp/src/linux/disp_sysfs.o \
+	$(DISP)/drv/disp/src/linux/drv_disp_os.o \
+	$(DISP)/drv/midisp/src/mhal_disp.o \
+	$(DISP)/hal/infinity2m/src/hal_disp_if.o \
+	$(DISP)/hal/infinity2m/src/hal_disp_irq.o \
+	$(DISP)/hal/infinity2m/src/hal_disp_scaler_e.o \
+	$(DISP)/hal/infinity2m/src/hal_disp_pq.o \
+	$(DISP)/hal/infinity2m/src/hal_disp_color.o \
+	$(DISP)/hal/infinity2m/src/hal_disp_mop.o \
+	$(DISP)/hal/infinity2m/src/hal_disp_vga_timing_tbl.o \
+	$(MHAL_GLUE)/mhal_disp_compat.o
+$(call per-object-cflags,$(DISP_OBJS),$(DISP_CFLAGS))
+
+# drv_pnl_module.c is left out for the same reason as drv_disp_module.c.
+PNL_CFLAGS := $(MHAL_SRC_CFLAGS) \
+	-I$(src)/$(PNL)/drv/pnl/inc -I$(src)/$(PNL)/drv/pnl/inc/linux \
+	-I$(src)/$(PNL)/drv/pnl/pub -I$(src)/$(PNL)/drv/mipnl/pub \
+	-I$(src)/$(PNL)/hal/infinity2m/inc -I$(src)/$(PNL)/hal/infinity2m/pub \
+	-I$(src)/$(PNL)/hal/pub
+PNL_OBJS := \
+	$(PNL)/drv/pnl/src/drv_pnl_ctx.o \
+	$(PNL)/drv/pnl/src/drv_pnl_if.o \
+	$(PNL)/drv/pnl/src/linux/drv_pnl_os.o \
+	$(PNL)/drv/pnl/src/linux/pnl_module.o \
+	$(PNL)/drv/pnl/src/linux/pnl_sysfs.o \
+	$(PNL)/drv/mipnl/src/mhal_pnl.o \
+	$(PNL)/hal/infinity2m/src/hal_pnl.o \
+	$(PNL)/hal/infinity2m/src/hal_pnl_if.o
+$(call per-object-cflags,$(PNL_OBJS),$(PNL_CFLAGS))
+
+# drv_rgn_export.c holds nothing but EXPORT_SYMBOLs, which the vendor
+# __ksymtab already provides.
+RGN_CFLAGS := $(MHAL_SRC_CFLAGS) \
+	-I$(src)/$(RGN)/drv/inc -I$(src)/$(RGN)/drv/inc/linux \
+	-I$(src)/$(RGN)/drv/pub \
+	-I$(src)/$(RGN)/hal/infinity2m/inc
+RGN_OBJS := \
+	$(RGN)/drv/src/drv_cover.o \
+	$(RGN)/drv/src/drv_gop.o \
+	$(RGN)/drv/src/drv_osd.o \
+	$(RGN)/drv/src/drv_rgn_common.o \
+	$(RGN)/drv/src/mhal_rgn.o \
+	$(RGN)/drv/src/linux/drv_rgn_os.o \
+	$(RGN)/drv/src/linux/rgn_proc.o \
+	$(RGN)/hal/infinity2m/src/hal_cover.o \
+	$(RGN)/hal/infinity2m/src/hal_gop.o \
+	$(RGN)/hal/infinity2m/src/hal_osd.o \
+	$(RGN)/hal/infinity2m/src/hal_rgn_common.o
+$(call per-object-cflags,$(RGN_OBJS),$(RGN_CFLAGS))
+
+MHAL_SRC_OBJS := $(DISP_OBJS) $(PNL_OBJS) $(RGN_OBJS)
+
+obj-m += $(PREFIX)mhal.o
+$(PREFIX)mhal-y := obj/infinity2m/mhal-open.o $(MHAL_SRC_OBJS) \
+	init/infinity2m/mhal_init.o
+
+quiet_cmd_weaken = WEAKEN  $@
+      cmd_weaken = $(CONFIG_SHELL) $(src)/../scripts/weaken.sh $(NM) \
+	$(OBJCOPY) $< $@ $(filter-out $<,$(filter %.o,$^))
+$(obj)/obj/infinity2m/mhal-open.o: $(obj)/obj/infinity2m/mhal.o \
+		$(addprefix $(obj)/,$(MHAL_SRC_OBJS)) \
+		$(src)/../scripts/weaken.sh FORCE
+	$(call if_changed,weaken)
+targets += obj/infinity2m/mhal-open.o
