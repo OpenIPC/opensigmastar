@@ -138,6 +138,82 @@ machine with the vendor `mhal` as much as with this one (the machine's
 display interrupt). Panel functions beyond init are not exercised (no
 panel). Nothing has run on hardware yet.
 
+## Without `/config`
+
+The SDK installs a `/config` directory that three of the relinked modules
+reach. OpenIPC firmware has none; this is where each use went.
+
+**`mi_sys` and `config_tool`.** While it loads, `mi_sys` registers the
+files of `/proc/mi_modules/common/` and runs, through
+`call_usermodehelper(..., UMH_WAIT_PROC)`, its parameter
+`default_config_path` (`/config` when unset) + `/config_tool` twice:
+argv `{<dir>/load_mmap, <dir>/mmap.ini}` (`MI_SYSCFG_SetupMmapLoader`) and
+`{<dir>/load_config}` (`MI_SYSCFG_SetupIniLoader`); the SDK's tool picks the
+job from `argv[0]`. Without the tool the module never finishes loading.
+What the tool writes, and what reads it:
+
+| File | Format | Kept in `mi_sys` | Read by |
+|------|--------|------------------|---------|
+| `memory_info` | text, `total miu0 miu1 boundary items 4k_align miu1_enable` | `_stMemoryInfo` | `MI_SYSCFG_GetMemoryInfo` (mi_sys) |
+| `mmap_info` | text per entry, `name gid addr size layer align type miu cma`; the file offset of each write is the entry's index, which must be below `items` (24 at most) | `_stMmapInfo[24]` | `MI_SYSCFG_GetMmapInfo`, by name: fbdev, mi_gfx, mi_ao, mi_ai, mi_vdec, mi_venc, mi_disp |
+| `config_info` | binary `MI_SYSCFG_Config_t`, 441896 bytes, copied to the write's offset unchecked | `_stConfig` | `MI_SYSCFG_GetPanelInfo` (mi_disp): the panel table (count, `PanelInfo_t[100]`), searched by `EN_DISPLAYTIMING_RES_TYPE`; `MI_SYSCFG_GetDLCTableCount` (no importer) |
+| `pq_info` | binary, first 32 bytes of `MI_SYSCFG_PQConfig_t`: DBC values, rows and columns of each table | `_stPQConfig` | nothing but its read handler |
+| `noise_table`, `motion_table`, `motion_hdmi_dtv_table`, `motion_comp_pc_table`, `misc_table`, `misc_luma_table`, `misc_param_table` | binary, rows x cols bytes, refused unless the size matches `pq_info` | `_stPQConfig` | nothing but their read handlers |
+
+The read handlers do not honour the file offset as `cat` expects (`cat
+pq_info` never ends, `cat config_info` reads past `_stConfig` and oopses);
+a single read of the exact size, at offset 0 (for `mmap_info`, at the
+entry's index), is safe. The SDK's `config_tool` read `mmap.ini`,
+`model/Customer_1.ini`, `board.ini`, the 26 `panel/*.ini`, `DLC/DLC.ini`,
+`ColorMatrix/ColorMatrix.ini` and `PQ_general/PQConfig.ini` (an `LD_PRELOAD`
+log of its `fopen`s); `pq/*.bin`, also in the SDK's `/config`, are read by
+nothing. OpenIPC firmware builds its own `config_tool` with the resulting
+tables compiled in (sigmastar-osdrv-infinity2m, `src/config_tool.c`) and
+loads `open_mi_sys` with `default_config_path=/usr/lib/sigmastar`. `mi_sys`
+also looks for `<default_config_path>miuprotect.txt` (no slash; the SDK has
+none either) and quietly goes on without it.
+
+**`fbdev`** reads the file its parameter `default_config_path_file` names
+(`/config/fbdev.ini` when unset).
+
+**`mi_vdec`** opens its decoder firmware by fixed paths. These, and two
+register-dump commands that debug paths run through `/bin/sh -c` with an SDK
+tool from `/config`, are rewritten in the committed objects by
+`scripts/restring.py`, as listed in `kernel/obj/infinity2m/restring.txt`:
+
+| Object | SDK string | Now |
+|--------|------------|-----|
+| `mi_vdec` | `/config/vdec_fw/normal/chagall.bin` | `/lib/firmware/chagall-normal.bin` |
+| `mi_vdec` | `/config/vdec_fw/latency/chagall.bin` | `/lib/firmware/chagall-latency.bin` |
+| `mi_vdec` | `/config/riu_r %x %x > /dev/console` | `: riu_r %x %x` |
+| `mi_sys` | `/config/riu_r %x %s` | `: riu_r %x %s` |
+
+Each new string is no longer than the old and NUL-padded to its length, in
+place in `.rodata.str1.1`: no section, symbol or relocation changes, and
+`cmp` shows only those bytes differing (101 in `mi_vdec`, 19 in `mi_sys`).
+The script refuses a string that is not found exactly once as a whole
+string, or that a relocation points into anywhere but its start (all
+relocations against these sections are `R_ARM_ABS32` with the addend in
+place, and each string has exactly one, at its start). Run again, it
+reports the strings as already replaced and changes nothing. To remake
+`mi_vdec.o_shipped` or `mi_sys.o_shipped` from the SDK's `.ko`:
+`scripts/ko2obj.sh`, then
+`scripts/restring.py kernel/obj/infinity2m/restring.txt <object>`.
+
+Left as they are: the fallbacks without parameters (`/config` and
+`/config/` in `mi_sys`, `/config/fbdev.ini` in `fbdev`), unused when the
+parameters are passed.
+
+Checked in qemu-bench's `ssr621q` machine, OpenIPC firmware without
+`/config`: all modules load with no oops, `open_mi_vdec` decodes the four
+test cameras (three H.264, one H.265) into the 2x2 view, and the state
+`mi_sys` keeps (every file of `/proc/mi_modules/common`, read once at the
+exact size) is the same as with the SDK's `config_tool` and `/config`,
+except three members of `config_info` nothing reads: `m_pCurrentPanelInfo`
+(the SDK tool's own pointer), `m_PQPathName` (`/config/pq/`) and
+`m_stMatrx` (stack leftovers of the SDK tool; they differ between two of its
+own runs too).
+
 ## Kernel configuration and version
 
 The relinked parts depend on the kernel's configuration beyond vermagic:

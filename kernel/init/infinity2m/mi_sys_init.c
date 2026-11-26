@@ -3,6 +3,10 @@
  * The code is SigmaStar's, unchanged (kernel/obj/infinity2m/mi_sys.o, made by
  * scripts/ko2obj.sh); this only calls its entry points. Its exports and
  * module parameters come with it. The licence is the vendor module's own.
+ * A debug command that called an SDK tool in /config is rewritten to do
+ * nothing (scripts/restring.py, kernel/obj/infinity2m/restring.txt). While
+ * it loads it runs <default_config_path>/config_tool (memory map, panel
+ * timings, PQ) and waits for it; default_config_path defaults to /config.
  */
 #include <linux/module.h>
 

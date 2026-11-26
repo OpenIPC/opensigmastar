@@ -1,0 +1,20 @@
+# Strings rewritten in the vendor objects here by scripts/restring.py, after
+# scripts/ko2obj.sh made them from the SDK's .ko (docs/infinity2m.md):
+#   <object> | <SDK string> | <string in the committed .o_shipped>
+#
+# mi_vdec reads its video decoder (VPU) firmware from these paths;
+# OpenIPC firmware installs it in /lib/firmware and has no /config.
+mi_vdec | /config/vdec_fw/normal/chagall.bin | /lib/firmware/chagall-normal.bin
+mi_vdec | /config/vdec_fw/latency/chagall.bin | /lib/firmware/chagall-latency.bin
+#
+# Register dump commands run through "/bin/sh -c" by debug paths
+# (vdi_dump_fw_reg_bank in mi_vdec, _MI_SYS_DumpModuleDebugInfo in mi_sys),
+# calling an SDK debug tool that OpenIPC firmware does not have: ":" makes
+# them do nothing.
+mi_vdec | /config/riu_r %x %x > /dev/console | : riu_r %x %x
+mi_sys | /config/riu_r %x %s | : riu_r %x %s
+#
+# Left as they are: the defaults the modules fall back to without their
+# parameters, "/config" in mi_sys (default_config_path: where it runs
+# config_tool) and "/config/fbdev.ini" in fbdev (default_config_path_file).
+# OpenIPC firmware's load_sigmastar always passes both.

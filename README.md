@@ -27,7 +27,8 @@ Two kinds, as in openhisilicon:
 - **Relinked**: a vendor module that exists only as a finished `.ko`, turned
   into an object by `scripts/ko2obj.sh` (from openhisilicon) and linked
   again for the kernel at hand with a small init wrapper
-  (`kernel/init/<CHIPARCH>/`). The code is SigmaStar's, unchanged. It gets this
+  (`kernel/init/<CHIPARCH>/`). The code is SigmaStar's, unchanged (in two
+  infinity2m objects a few path strings are rewritten, below). It gets this
   kernel's vermagic and `struct module`, so it follows the OpenIPC kernel
   rather than the SDK's build of it. Each keeps the vendor module's licence.
 
@@ -40,14 +41,24 @@ The whole media stack an SSR621Q NVR loads, in this order:
 | `open_mhal.ko` | relinked + display/panel/regions from source | MHAL: display, GOP/regions, panel (these three from SigmaStar's source, below), GE, DIVP, CMDQ, audio, JPEG/H.264/H.265 encoder HALs |
 | `open_mi_common.ko`, `open_mi_sys.ko` | relinked | MI core, buffers, binding |
 | `open_mi_ao.ko`, `open_mi_gfx.ko`, `open_mi_divp.ko`, `open_mi_vdec.ko`, `open_mi_ai.ko`, `open_mi_ipu.ko`, `open_mi_disp.ko`, `open_mi_venc.ko`, `open_mi_panel.ko` | relinked | MI modules (the SDK's `.mods_depend` order); each makes `/dev/mi_<x>` |
-| `open_fbdev.ko` | relinked | GOP framebuffer, `/dev/fb0` (`default_config_path_file=/config/fbdev.ini`) |
+| `open_fbdev.ko` | relinked | GOP framebuffer, `/dev/fb0` (`default_config_path_file=<fbdev.ini>`) |
 | `open_hdmitx.ko` | source | HDMI transmitter (below) |
 | `open_hdmi.ko` | source | switches HDMI on (below) |
 
 The relinked modules come from the i2m NVR SDK (2020-03), the release the
-MI libraries and headers in `include/infinity2m` match. They read their
-configuration from `/config` (panel timings, PQ, memory map, decoder
-firmware), a path built into them; OpenIPC firmware ships it.
+MI libraries and headers in `include/infinity2m` match. What the SDK puts
+in `/config` they find elsewhere:
+
+- `open_mi_sys` runs `<default_config_path>/config_tool` while it loads
+  (memory map, panel timings, PQ defaults) and waits for it; OpenIPC
+  firmware passes `default_config_path=/usr/lib/sigmastar` and builds its own
+  `config_tool` from source (sigmastar-osdrv-infinity2m).
+- `open_fbdev` reads the file named by `default_config_path_file`.
+- `open_mi_vdec` loads its decoder firmware from
+  `/lib/firmware/chagall-normal.bin` and `/lib/firmware/chagall-latency.bin`:
+  these paths, and two debug commands that called an SDK tool in `/config`,
+  are rewritten in the committed objects (`scripts/restring.py`,
+  `kernel/obj/infinity2m/restring.txt`, [docs/infinity2m.md](docs/infinity2m.md)).
 
 ### iford and ifliegen
 
@@ -79,8 +90,10 @@ is now from source. Start the display first, then write the same timing to
 
 ## Build
 
-`scripts/ko2obj.sh` made `kernel/obj/<CHIPARCH>/*.o_shipped`; it is only
-needed to add a module. `scripts/weaken.sh` runs during the build: it lets
+`scripts/ko2obj.sh` made `kernel/obj/<CHIPARCH>/*.o_shipped`, and for
+infinity2m `scripts/restring.py` then rewrote the strings listed in
+`kernel/obj/infinity2m/restring.txt`; they are only needed to add or
+remake a module. `scripts/weaken.sh` runs during the build: it lets
 the disp/panel/rgn source objects replace their vendor copies inside
 `open_mhal.ko` ([docs/infinity2m.md](docs/infinity2m.md)). Against an OpenIPC SigmaStar kernel tree that has been built:
 
