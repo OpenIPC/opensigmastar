@@ -137,3 +137,11 @@ H.264, one H.265) in a 2x2 view:
 machine with the vendor `mhal` as much as with this one (the machine's
 display interrupt). Panel functions beyond init are not exercised (no
 panel). Nothing has run on hardware yet.
+
+## Kernel configuration and version
+
+The relinked parts depend on the kernel's configuration beyond vermagic:
+[kabi.md](kabi.md) lists the options that must stay as OpenIPC firmware
+sets them, and `make -C kernel kabi-check` checks a kernel tree. The SDK
+built these modules with `CONFIG_LBDAF` off; the firmware has it on, which
+moves `struct inode` members the vendor code is not seen to use.

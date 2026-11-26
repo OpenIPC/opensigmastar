@@ -1,0 +1,46 @@
+# KCOMPAT=1: the infinity2m vendor modules for a kernel newer than their
+# SDK's 4.9.84 -- a study build, written for 5.10 (see docs/kabi.md). The
+# vendor objects get scripts/kcompat-obj.sh (references to changed kernel
+# functions renamed to kcompat_*, the export table rebuilt for this
+# kernel's struct kernel_symbol) and open_kcompat.ko provides what 5.10
+# does not. mhal is the SDK's own, without the display/panel/regions from
+# source and without hdmitx/hdmi: those are built against the infinity2m
+# kernel's drivers/sstar. The vendor code still dereferences kernel
+# structures whose layout changed; scripts/kabi-check.py lists them.
+ifneq ($(VERSION).$(PATCHLEVEL),5.10)
+$(error KCOMPAT=1 is written for 5.10 kernels (renames-5.10.txt); this one is $(VERSION).$(PATCHLEVEL))
+endif
+
+KC_MODS := mhal mi_common mi_sys mi_ao mi_gfx mi_divp mi_vdec mi_ai \
+	mi_ipu mi_disp mi_venc mi_panel fbdev
+KC_RENAMES := $(src)/kcompat/renames-$(VERSION).$(PATCHLEVEL).txt
+
+$(foreach m,$(KC_MODS),$(eval obj-m += $(PREFIX)$(m).o) \
+	$(eval $(PREFIX)$(m)-y := kcompat/obj/$(m).o kcompat/obj/$(m)_exports.o \
+		init/infinity2m/$(m)_init.o))
+
+# open_kcompat exports a symbol under its 4.9 name only where this kernel
+# does not export it (Module.symvers)
+KC_PROVIDES := do_gettimeofday getnstimeofday64 CamOsTcondInit idr_init \
+	idr_find_slowpath vfs_read vfs_write ioremap_cached __memzero \
+	warn_slowpath_null lock_fb_info CamOsPhyMemUnMap
+KC_HAVE := $(shell awk '{ print $$2 }' $(objtree)/Module.symvers 2>/dev/null)
+KC_VFS_NS := $(shell awk -F '\t' '$$2 == "kernel_read" { print $$5 }' \
+	$(objtree)/Module.symvers 2>/dev/null)
+obj-m += $(PREFIX)kcompat.o
+$(PREFIX)kcompat-y := kcompat/open_kcompat.o
+# (5.x Kbuild names per-object flags by the path, kcompat/open_kcompat.o)
+CFLAGS_kcompat/open_kcompat.o := -Wall \
+	$(foreach s,$(KC_PROVIDES),$(if $(filter $(s),$(KC_HAVE)),,-DKC_NEED_$(s))) \
+	$(if $(KC_VFS_NS),-DKC_VFS_NS=$(KC_VFS_NS))
+
+KC_OBJS := $(addprefix $(obj)/kcompat/obj/,$(addsuffix .o,$(KC_MODS)))
+quiet_cmd_kcobj = KCOMPAT $@
+      cmd_kcobj = mkdir -p $(dir $@) && $(CONFIG_SHELL) $(src)/../scripts/kcompat-obj.sh \
+	$(OBJCOPY) $(NM) $(KC_RENAMES) $(objtree)/Module.symvers $< $@ $(@:.o=_exports.c)
+$(KC_OBJS): $(obj)/kcompat/obj/%.o: $(obj)/obj/infinity2m/%.o $(KC_RENAMES) \
+		$(src)/../scripts/kcompat-obj.sh FORCE
+	$(call if_changed,kcobj)
+$(obj)/kcompat/obj/%_exports.c: $(obj)/kcompat/obj/%.o
+	@:
+targets += $(patsubst $(obj)/%,%,$(KC_OBJS))

@@ -9,6 +9,12 @@
 # and struct module. Load order: open_mhal, open_mi_common, open_mi_sys, then
 # the others (the SDK's .mods_depend), open_fbdev last.
 # open_mhal.ko also carries display, panel and regions from source (below).
+#
+# KCOMPAT=1 builds the vendor modules for a newer kernel instead, as a study
+# (kernel/kcompat/, docs/kabi.md).
+ifneq ($(KCOMPAT),)
+include $(src)/kcompat/kcompat.kbuild
+else
 I2M_BLOBS := mi_common mi_sys mi_ao mi_gfx mi_divp mi_vdec mi_ai \
 	mi_ipu mi_disp mi_venc mi_panel fbdev
 $(foreach m,$(I2M_BLOBS),$(eval obj-m += $(PREFIX)$(m).o) \
@@ -174,3 +180,4 @@ $(obj)/obj/infinity2m/mhal-open.o: $(obj)/obj/infinity2m/mhal.o \
 		$(src)/../scripts/weaken.sh FORCE
 	$(call if_changed,weaken)
 targets += obj/infinity2m/mhal-open.o
+endif

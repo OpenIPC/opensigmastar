@@ -94,6 +94,25 @@ pages give the kernel configs and toolchains.
 
 OpenIPC firmware builds it as the `sigmastar-opensdk` package.
 
+### Kernel ABI of the relinked modules
+
+A relinked module still has the SDK kernel's structure layouts, inline
+code and constants compiled in. `scripts/kabi-check.py` compares a kernel
+tree with what the infinity2m vendor modules expect
+(`kernel/kabi/infinity2m.json`, from the SDK modules' DWARF and
+disassembly):
+
+```sh
+make -C kernel kabi-check KDIR=<kernel> CHIPARCH=infinity2m \
+     ARCH=arm CROSS_COMPILE=arm-openipc-linux-gnueabihf-
+```
+
+OpenIPC firmware's configuration passes; several common options must not
+change (`PREEMPT`, `SMP`, `DEBUG_SPINLOCK`, `DEBUG_MUTEXES`, `HZ`,
+`VMSPLIT_3G`, ...), and the modules cannot move to 5.10 or later. See
+[docs/kabi.md](docs/kabi.md), which also covers `KCOMPAT=1`, a study build
+of the modules for a 5.10 kernel with `open_kcompat.ko`.
+
 ## Headers
 
 `include/<CHIPARCH>/` holds the MI headers (`mi_*.h`) that match the
@@ -127,7 +146,7 @@ hardware.
 
 ## License
 
-The repository is GPL-3.0 (`LICENSE`). `kernel/hdmi` is GPL-2.0, as a
-kernel module. The vendor sources under `kernel/hdmitx`,
+The repository is GPL-3.0 (`LICENSE`). `kernel/hdmi` and `kernel/kcompat`
+are GPL-2.0, as kernel modules. The vendor sources under `kernel/hdmitx`,
 `kernel/disp`, `kernel/panel`, `kernel/rgn` and `kernel/common` and the headers
 under `include/` keep SigmaStar's own notices.
