@@ -1,0 +1,14 @@
+# OpenSigmaStar kernel modules, built against an OpenIPC SigmaStar kernel:
+#   make -C <kernel> M=$PWD/kernel CHIPARCH=infinity2m modules
+# Each family's modules are listed in <CHIPARCH>.kbuild.
+PREFIX = open_
+
+ifeq ($(CHIPARCH),)
+$(error CHIPARCH must be set, e.g. CHIPARCH=infinity2m)
+endif
+
+ifneq ($(wildcard $(src)/$(CHIPARCH).kbuild),)
+include $(src)/$(CHIPARCH).kbuild
+else
+$(error no modules for CHIPARCH=$(CHIPARCH))
+endif

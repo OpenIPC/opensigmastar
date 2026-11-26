@@ -1,0 +1,55 @@
+# infinity2m (SSD201, SSD202D, SSR621Q)
+#
+# open_hdmitx.ko: the HDMI transmitter driver, SigmaStar's own source from
+# the SSR621 boot release (boot_621_release_20200522, drivers/mstar/hdmitx,
+# its Linux OS layer). It exports the MhalHdmitx* API that the vendor's
+# mi_hdmi calls; the i2m NVR SDK's mhal.ko has no HDMI TX.
+# open_hdmi.ko: switches the transmitter on through that API, from sysfs.
+
+HDMITX := hdmitx
+HAL := $(HDMITX)/hal/infinity2m
+SS := $(srctree)/drivers/sstar
+
+HDMITX_CFLAGS := \
+	-I$(src)/$(HDMITX)/drv/hdmitx/inc -I$(src)/$(HDMITX)/drv/hdmitx/inc/linux \
+	-I$(src)/$(HDMITX)/drv/hdmitx/pub -I$(src)/$(HDMITX)/drv/hdmitx/src/api/hdmitx \
+	-I$(src)/$(HDMITX)/drv/hdmitx/src/drv/hdmitx/include \
+	-I$(src)/$(HDMITX)/drv/mihdmitx/pub -I$(src)/$(HAL)/hdmitx/include \
+	-I$(src)/$(HAL)/hdmitx -I$(src)/$(HAL)/hdcp -I$(src)/$(HAL)/pub \
+	-I$(src)/$(HAL)/inc -I$(src)/$(HDMITX)/hal/pub \
+	-I$(SS)/include -I$(SS)/include/infinity2m -I$(SS)/warp/drv/inc \
+	-I$(SS)/cam_os_wrapper/pub -I$(SS)/cam_sysfs/pub \
+	-DHDMITX_OS_TYPE_LINUX -DMSOS_TYPE_LINUX_KERNEL \
+	-include $(SS)/include/MsTypes.h
+# The infinity2m kernel exports the vendor GPIO calls as camdriver_gpio_*.
+HDMITX_CFLAGS += \
+	-Dmstar_gpio_request=camdriver_gpio_request \
+	-Dmstar_gpio_get=camdriver_gpio_get \
+	-Dmstar_gpio_to_irq=camdriver_gpio_to_irq \
+	-Dmstar_gpio_direction_input=camdriver_gpio_direction_input \
+	-Dmstar_gpio_direction_output=camdriver_gpio_direction_output
+ccflags-y += $(HDMITX_CFLAGS)
+# vendor code, built as released: its warnings are not ours to fix here
+ccflags-y += -w
+
+obj-m += $(PREFIX)hdmitx.o
+$(PREFIX)hdmitx-y := \
+	$(HDMITX)/drv/hdmitx/src/linux/drv_hdmitx_module.o \
+	$(HDMITX)/drv/hdmitx/src/linux/hdmitx_module.o \
+	$(HDMITX)/drv/hdmitx/src/linux/hdmitx_sysfs.o \
+	$(HDMITX)/drv/hdmitx/src/linux/drv_hdmitx_os.o \
+	$(HDMITX)/drv/hdmitx/src/drv/hdmitx/drvHDMITx.o \
+	$(HDMITX)/drv/hdmitx/src/api/hdmitx/apiHDMITx.o \
+	$(HDMITX)/drv/hdmitx/src/drv_hdmitx_if.o \
+	$(HDMITX)/drv/hdmitx/src/drv_hdmitx_ctx.o \
+	$(HDMITX)/drv/mihdmitx/src/mhal_hdmitx.o \
+	$(HAL)/hdmitx/halHDMIUtilTx.o \
+	$(HAL)/hdmitx/hal_hdmitx_top_tbl.o \
+	$(HAL)/hdmitx/halHDMITx.o \
+	$(HAL)/hdmitx/halHDCPTx.o \
+	$(HAL)/hdcp/halHDCP.o \
+	$(HAL)/src/hal_hdmitx_if.o
+
+obj-m += $(PREFIX)hdmi.o
+$(PREFIX)hdmi-y := hdmi/open_hdmi.o
+CFLAGS_open_hdmi.o := -Wall
