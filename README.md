@@ -15,6 +15,8 @@ so it can be fixed and does not depend on a blob built for one kernel.
 | Family | SoCs | CHIPARCH | Kernel |
 |--------|------|----------|--------|
 | infinity2m | SSD201, SSD202D, SSR621Q | `infinity2m` | [OpenIPC/linux `sigmastar-infinity2m`](https://github.com/OpenIPC/linux/tree/sigmastar-infinity2m) (4.9.84) |
+| iford | SSC029A, SSC029B, SSC029C | `iford` | SigmaStar's Iford SDK IMD00V2.1.0 kernel (5.10.117); no OpenIPC kernel yet |
+| ifliegen | SSC034A, SSC034B | `ifliegen` | SigmaStar's Ifliegen SDK ILSSV01C12 kernel (4.9.84); no OpenIPC kernel yet |
 
 ## Modules
 
@@ -47,6 +49,22 @@ MI libraries and headers in `include/infinity2m` match. They read their
 configuration from `/config` (panel timings, PQ, memory map, decoder
 firmware), a path built into them; OpenIPC firmware ships it.
 
+### iford and ifliegen
+
+These SDKs ship each MI kernel module as an object plus its init and export
+glue in source (`sdk/linux`), which they link against the kernel at build
+time. The same is done here in plain Kbuild, with the SDK's names, so the
+modules are drop-in replacements for the SDK's `mi_*.ko`.
+
+| Modules | CHIPARCH | Notes |
+|---------|----------|-------|
+| `mi_common`, `mi_sys`, `mi_sensor`, `mi_rgn`, `mi_disp`, `mi_fb`, `mi_dummy`, `mi_aio`, `mi_vif`, `mi_isp`, `mi_scl`, `mi_ive`, `mi_ai`, `mi_ao`, `mi_ldc`, `mi_shadow`, `mi_venc`, `mi_vdisp`, `mi_ipu`, `mi_debug` | iford | Objects from the SDK's `obj/uclibc/9.1.0` set. The kernel must be built with GCC plugins off (those objects use the global stack canary). See [docs/iford.md](docs/iford.md). |
+| `mi_common`, `mi_sys`, `mi_rgn`, `mi_sensor`, `mi_vif`, `mi_scl`, `mi_isp`, `mi_venc`, `mi_ive`, `mi_ipu`, `mi_vdf`, `mi_vdisp`, `mi_disp`, `mi_fb`, `mi_aio`, `mi_ai`, `mi_ao`, `mi_dummy`, `mi_debug` | ifliegen | See [docs/ifliegen.md](docs/ifliegen.md). |
+| `bf3901.ko`, `gc032a.ko` | ifliegen | PSPI sensor drivers, full source (`sdk/driver/PspiDriver`). They need `mi_pspi.ko`, which the SDK does not build for Ifliegen, so they build but do not load (nor do the SDK's). |
+
+The vendor objects are kept without their debug sections; symbols, code and
+relocations are unchanged.
+
 ### Modules from source
 
 | Module | CHIPARCH | What it is | Source |
@@ -68,12 +86,17 @@ make -C kernel KDIR=<kernel> CHIPARCH=infinity2m \
      ARCH=arm CROSS_COMPILE=arm-openipc-linux-gnueabihf-
 ```
 
+iford and ifliegen build the same way against their SDK kernels; the docs
+pages give the kernel configs and toolchains.
+
 OpenIPC firmware builds it as the `sigmastar-opensdk` package.
 
 ## Headers
 
-`include/<CHIPARCH>/` holds the MI headers (`mi_*.h`) and `sstarFb.h` that
-match the libraries the OpenIPC firmware ships for that family. For
+`include/<CHIPARCH>/` holds the MI headers (`mi_*.h`) that match the
+family's libraries: for infinity2m with `sstarFb.h`, the ones OpenIPC
+firmware ships; for iford and ifliegen, the SDK's `release/include` as
+shipped, which their module builds use too. For
 infinity2m they match the i2m NVR SDK (2020-03). That SDK's `libmi_vdec`
 has no `stErrHandlePolicy` in `MI_VDEC_VideoAttr_t` (4 bytes, from its
 DWARF), so the header leaves it out.
@@ -85,6 +108,14 @@ and runs in qemu-bench's `ssr621q` machine on an OpenIPC firmware image,
 where an NVR application decodes four cameras (H.264 and H.265) to the
 display with it, as with the SDK's own `.ko` files. The machine does not
 model the HDMI transmitter's signal, and **nothing has run on hardware** yet.
+
+iford and ifliegen build against the SDK kernels and match the SDK's
+prebuilt modules (exported and undefined symbols, vermagic, parameters). In
+qemu-bench's `ssc029` the Iford set runs the SDK's `preview` (sensor, VIF,
+ISP, scaler, H.264) to RTSP with the same decoded frames as SigmaStar's own
+modules; in `ssc034a`/`ssc034b` the Ifliegen set gives byte-identical
+`venc_demo` H.264 and H.265 output, and loads and unloads cleanly. Not run on
+hardware.
 
 Candidates for later: the same boot release carries the Linux OS layers of
 `disp`, `panel` and `rgn`. On infinity2m those are inside the SDK's
