@@ -1,5 +1,17 @@
 # infinity2m (SSD201, SSD202D, SSR621Q)
 #
+# The NVR media stack (i2m NVR SDK, 2020-03), relinked for this kernel:
+# open_mhal.ko, open_mi_<mod>.ko and open_fbdev.ko are the SDK's mhal.ko,
+# mi_<mod>.ko and fbdev.ko, unchanged code turned into objects by
+# scripts/ko2obj.sh (kernel/obj/infinity2m) and wrapped by
+# kernel/init/infinity2m/<mod>_init.c, so they carry this kernel's vermagic
+# and struct module. Load order: open_mhal, open_mi_common, open_mi_sys, then
+# the others (the SDK's .mods_depend), open_fbdev last.
+I2M_BLOBS := mhal mi_common mi_sys mi_ao mi_gfx mi_divp mi_vdec mi_ai \
+	mi_ipu mi_disp mi_venc mi_panel fbdev
+$(foreach m,$(I2M_BLOBS),$(eval obj-m += $(PREFIX)$(m).o) \
+	$(eval $(PREFIX)$(m)-y := obj/infinity2m/$(m).o init/infinity2m/$(m)_init.o))
+#
 # open_hdmitx.ko: the HDMI transmitter driver, SigmaStar's own source from
 # the SSR621 boot release (boot_621_release_20200522, drivers/mstar/hdmitx,
 # its Linux OS layer). It exports the MhalHdmitx* API that the vendor's

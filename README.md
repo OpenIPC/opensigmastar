@@ -18,6 +18,37 @@ so it can be fixed and does not depend on a blob built for one kernel.
 
 ## Modules
 
+Two kinds, as in openhisilicon:
+
+- **From source**: built from SigmaStar's own source (from an SDK, boot or
+  kernel release) or from this repository's.
+- **Relinked**: a vendor module that exists only as a finished `.ko`, turned
+  into an object by `scripts/ko2obj.sh` (from openhisilicon) and linked
+  again for the kernel at hand with a small init wrapper
+  (`kernel/init/<CHIPARCH>/`). The code is SigmaStar's, unchanged. It gets this
+  kernel's vermagic and `struct module`, so it follows the OpenIPC kernel
+  rather than the SDK's build of it. Each keeps the vendor module's licence.
+
+### infinity2m (NVR)
+
+The whole media stack an SSR621Q NVR loads, in this order:
+
+| Module | Kind | What it is |
+|--------|------|------------|
+| `open_mhal.ko` | relinked | MHAL: display, GOP/regions, panel, GE, DIVP, CMDQ, audio, JPEG/H.264/H.265 encoder HALs |
+| `open_mi_common.ko`, `open_mi_sys.ko` | relinked | MI core, buffers, binding |
+| `open_mi_ao.ko`, `open_mi_gfx.ko`, `open_mi_divp.ko`, `open_mi_vdec.ko`, `open_mi_ai.ko`, `open_mi_ipu.ko`, `open_mi_disp.ko`, `open_mi_venc.ko`, `open_mi_panel.ko` | relinked | MI modules (the SDK's `.mods_depend` order); each makes `/dev/mi_<x>` |
+| `open_fbdev.ko` | relinked | GOP framebuffer, `/dev/fb0` (`default_config_path_file=/config/fbdev.ini`) |
+| `open_hdmitx.ko` | source | HDMI transmitter (below) |
+| `open_hdmi.ko` | source | switches HDMI on (below) |
+
+The relinked modules come from the i2m NVR SDK (2020-03), the release the
+MI libraries and headers in `include/infinity2m` match. They read their
+configuration from `/config` (panel timings, PQ, memory map, decoder
+firmware), a path built into them; OpenIPC firmware ships it.
+
+### Modules from source
+
 | Module | CHIPARCH | What it is | Source |
 |--------|----------|------------|--------|
 | `open_hdmitx.ko` | infinity2m | HDMI transmitter driver: the `sstar,hdmitx` platform driver, exporting the `MhalHdmitx*` API the vendor's `mi_hdmi` calls. The i2m NVR SDK's `mhal.ko` has no HDMI TX. | SigmaStar, `boot_621_release_20200522` `drivers/mstar/hdmitx`, its Linux OS layer (`kernel/hdmitx`) |
@@ -29,7 +60,8 @@ The display itself (MI_DISP) still comes from the SDK's `mhal.ko` and
 
 ## Build
 
-Against an OpenIPC SigmaStar kernel tree that has been built:
+`scripts/ko2obj.sh` made `kernel/obj/<CHIPARCH>/*.o`; it is only needed to
+add a module. Against an OpenIPC SigmaStar kernel tree that has been built:
 
 ```sh
 make -C kernel KDIR=<kernel> CHIPARCH=infinity2m \
@@ -48,9 +80,11 @@ DWARF), so the header leaves it out.
 
 ## Status
 
-Built and loaded in qemu-bench's `ssr621q` machine. That machine does not
-model the HDMI transmitter, so the output itself is **not verified on
-hardware** yet.
+infinity2m: the whole set builds against OpenIPC/linux `sigmastar-infinity2m`
+and runs in qemu-bench's `ssr621q` machine on an OpenIPC firmware image,
+where an NVR application decodes four cameras (H.264 and H.265) to the
+display with it, as with the SDK's own `.ko` files. The machine does not
+model the HDMI transmitter's signal, and **nothing has run on hardware** yet.
 
 Candidates for later: the same boot release carries the Linux OS layers of
 `disp`, `panel` and `rgn`. On infinity2m those are inside the SDK's
