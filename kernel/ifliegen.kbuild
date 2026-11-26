@@ -1,0 +1,90 @@
+# ifliegen (SSC034A, SSC034B)
+#
+# mi_<x>.ko: SigmaStar's MI modules, relinked the way the Ifliegen SDK
+# (ILSSV01C12) builds them in sdk/linux: the vendor's prebuilt object
+# (ifliegen/obj/<x>.o_shipped, from obj/glibc/9.1.0/arm, debug info
+# stripped) plus its init and export glue in source (ifliegen/init/<x>).
+# The set and the options are those of the SDK's IPC product
+# (ifliegen_sdk_generic_defconfig): every interface it enables that has an
+# object in the SDK. The names are the SDK's, so the modules are drop-in
+# replacements for its release/.../modules/4.9.84/mi_<x>.ko.
+#
+# bf3901.ko, gc032a.ko: the PSPI sensor drivers, sdk/driver/PspiDriver, in
+# full source. They call DRV_PSPI_SENSOR_*, which only mi_pspi.ko exports;
+# the SDK disables pspi for Ifliegen and ships no pspi object, so they build
+# but do not load here, like the SDK's own.
+
+IFL := ifliegen
+MI_CHIP := IFLIEGEN
+
+# link_modules.mk, for every module. The include path is its SGS_INC_DIR
+# after the module's own and its DEP_MODULE directories: SensorDriver's
+# drv/pub (in $(IFL)/include), project/release/include (../include/$(IFL)),
+# then the kernel's. project_autoconf.h is the SDK project's
+# include/generated/autoconf.h.
+MI_CFLAGS := -I$(src)/$(IFL)/include -I$(src)/../include/$(IFL) \
+	-I$(srctree)/drivers/sgs/include -I$(srctree)/drivers/sgs_common/include \
+	-I$(srctree)/drivers/sgs/include/$(IFL) \
+	-g -Wall -Wno-pointer-sign -Wno-unused-variable -Wno-unused-result \
+	-pipe -include linux/version.h \
+	-include $(src)/$(IFL)/include/project_autoconf.h \
+	-ffunction-sections -fdata-sections -DALKAID_SDK \
+	-DCONFIG_SGS_CHIP_$(MI_CHIP)=1
+
+# ld -r of each mi_<x>.o: the SDK's second pass, module.lds plus
+# --gc-sections from the module's entry points
+ldflags-y += -T $(src)/$(IFL)/module.lds --gc-sections \
+	-u init_module -u cleanup_module
+
+upper = $(shell echo $(1) | tr a-z A-Z)
+
+# $(call mi,<x>,<init objects>,<DEP_MODULE>,<extra cflags>)
+define mi
+obj-m += mi_$(1).o
+mi_$(1)-y := $(IFL)/obj/$(1).o $(addprefix $(IFL)/init/$(1)/,$(2))
+$(foreach o,$(2),$(eval CFLAGS_$(basename $(notdir $(o))).o := \
+	$(foreach d,$(1) $(3),-I$(src)/$(IFL)/init/$(d)) $(MI_CFLAGS) \
+	-DEXTRA_MODULE_NAME=$(1) $(4) -DCONFIG_MI_$(call upper,$(1))=1))
+endef
+
+# INIT_FILES, DEP_MODULE and EX_CFLAGS from each init/<x>/cfg.mk with the
+# IPC product's current.configs: MI_FB_NORMAL, MI_FB_VIDEO, mi_fb_kapi=yes
+# (the only module whose kernel API export is on), no MI_SYS_DMABUF or
+# MI_SYS_SG_TABLE, gfx and vdec disabled.
+$(eval $(call mi,common,common_init.o))
+$(eval $(call mi,sys,sys_init.o cmdq_export.o cmdq_init.o,common))
+$(eval $(call mi,rgn,rgn_init.o,common sys))
+$(eval $(call mi,sensor,csi_init.o sensor_export.o sensor_init.o,common sys))
+$(eval $(call mi,vif,vif_init.o vif_export.o,common sys sensor))
+$(eval $(call mi,scl,scl_export.o scl_init.o,common sys rgn))
+# isp_cus3a_if.h includes mi_isp_hw_dep_datatype.h, which the SDK release
+# has in release/include/isp/ifliegen (with its mi_isp_* headers in
+# release/include/isp), not on link_modules.mk's path
+$(eval $(call mi,isp,isp_init.o isp_poll.o isp_export.o,common sys vif sensor scl,-I$(src)/../include/$(IFL)/isp -I$(src)/../include/$(IFL)/isp/$(IFL)))
+$(eval $(call mi,venc,venc_init.o,common sys rgn))
+$(eval $(call mi,ive,ive_init.o,common sys))
+$(eval $(call mi,ipu,ipu_init.o,common sys))
+$(eval $(call mi,vdf,vdf_init.o,common sys))
+# vdisp's cfg.mk also lists gfx, whose init headers it does not include
+$(eval $(call mi,vdisp,vdisp_init.o,common sys))
+$(eval $(call mi,disp,disp_init.o,common sys rgn))
+$(eval $(call mi,fb,fb_init.o fb_api_export.o fb_init_linux.o,common sys disp rgn,-DMI_FB_NORMAL -DMI_FB_VIDEO -DKAPI_ENABLE))
+$(eval $(call mi,aio,aio_init.o,common sys))
+$(eval $(call mi,ai,ai_init.o,common sys aio))
+$(eval $(call mi,ao,ao_init.o,common sys aio))
+$(eval $(call mi,dummy,dummy_init.o,common sys))
+$(eval $(call mi,debug,debug_init.o,common sys))
+
+# PSPI sensor drivers, pspi.mk. Its modules build as drv_pspi_<sensor>.ko,
+# and pspi.mk renames the file to <sensor>.ko; the module in it keeps the
+# name drv_pspi_<sensor>. The copy below is that rename, in modpost.
+PSPI := bf3901 gc032a
+obj-m += $(PSPI:%=$(IFL)/pspi/drv/drv_pspi_%.o)
+PSPI_CFLAGS := -g -Wall -Wno-unused-result -pipe \
+	-I$(src)/$(IFL)/pspi/pub -I$(src)/../include/$(IFL) \
+	-I$(srctree)/drivers/sgs_common/include
+$(foreach p,$(PSPI),$(eval CFLAGS_drv_pspi_$(p).o := $(PSPI_CFLAGS)))
+
+_modpost: $(PSPI:%=$(obj)/%.ko)
+$(PSPI:%=$(obj)/%.ko): $(obj)/%.ko: $(obj)/$(IFL)/pspi/drv/drv_pspi_%.ko
+	cp $< $@
