@@ -1,0 +1,106 @@
+# iford (SSC029A, SSC029B, SSC029C), Linux 5.10
+#
+# The MI kernel modules of SigmaStar's Iford SDK (IMD00V2.1.0), relinked
+# the way its sdk/linux does it (link_modules.mk + init/<module>/cfg.mk):
+# each mi_<module>.ko is the SDK's prebuilt relocatable object
+# iford/obj/<module>.o_shipped (obj/uclibc/9.1.0/<module>.o, unchanged)
+# plus that module's init and export glue, SigmaStar's own source, in
+# iford/init/<module>/. Named as the SDK names them, so they replace the
+# SDK's mi_*.ko one for one.
+#
+# The module set and options are those of the SDK's ipc product, as its
+# defconfig ipc_iford.nor.uclibc-9.1.0-squashfs.ssz029c.128.qfn128_ddr3_demo_aov
+# resolves them (configs/current.configs): every interface_<x> = enable
+# that has a kernel part. jpd and nir have init sources in the SDK but no
+# object, so they cannot be built.
+#
+# The objects need a kernel with the global stack protector guard
+# (__stack_chk_guard, no CONFIG_STACKPROTECTOR_PER_TASK), as the SDK's
+# gcc 9.1 kernels are; see docs/iford.md.
+
+MI_PREFIX := mi_
+IFORD := iford
+
+IFORD_MODULES := common sys sensor rgn disp fb dummy aio vif isp scl ive \
+	ai ao ldc shadow venc vdisp ipu debug
+
+# INIT_FILES of each cfg.mk, with the KAPI export files that
+# current.configs turns on (ENABLE_MI_KAPI = y, mi_fb_kapi = yes; all
+# other mi_<x>_kapi are no or unset).
+init-ai := ai_init.o
+init-aio := aio_init.o
+init-ao := ao_init.o
+init-common := common_init.o
+init-debug := debug_init.o
+init-disp := disp_init.o
+init-dummy := dummy_init.o
+init-fb := fb_init.o fb_api_export.o
+init-ipu := ipu_init.o
+init-isp := isp_init.o ispmid_init.o mload_init.o
+init-ive := ive_init.o
+init-ldc := ldc/ldc_init.o dis/dis_init.o multiband/multiband_init.o
+init-rgn := rgn_init.o
+init-scl := scl_export.o scl_init.o
+init-sensor := csi_init.o sensor_export.o sensor_init.o
+init-shadow := shadow_init.o
+init-sys := sys_init.o cmdq_export.o cmdq_init.o
+init-vdisp := vdisp_init.o
+init-venc := venc_init.o
+init-vif := vif_init.o vif_export.o
+
+# DEP_MODULE of each cfg.mk: the init directories on the include path.
+dep-ai := common sys aio
+dep-aio := common sys
+dep-ao := common sys aio
+dep-common :=
+dep-debug := common sys
+dep-disp := common sys rgn
+dep-dummy := common sys
+dep-fb := common sys disp
+dep-ipu := common sys
+dep-isp := common sys vif sensor scl
+dep-ive := common sys
+dep-ldc := common sys
+dep-rgn := common sys
+dep-scl := common sys rgn
+dep-sensor := common sys
+dep-shadow := common sys
+dep-sys := common
+dep-vdisp := common sys gfx
+dep-venc := common sys rgn
+dep-vif := common sys
+
+# EX_CFLAGS / EXTRA_CFLAGS of each cfg.mk, as they resolve for iford
+flags-common := -DMI_COMMON_RGNSUB
+flags-fb := -DMI_FB_NORMAL
+flags-ipu := -DUSE_IPU_OPP_TABLE=0
+flags-isp := -D__DISABLE_MHAL_ISR_REGISTER__ -D__I6F_ISP__
+flags-sensor := -D__ENABLE_SENSOR_UT__ -D_CSI_DBG_ISR_ERR_
+
+# link_modules.mk: flags common to every module. The MI headers are the
+# SDK's release/include (include/iford here), the sensor driver headers
+# its SensorDriver/drv/pub (iford/include here); cam_os and the other
+# SigmaStar kernel headers come from the kernel tree.
+IFORD_CFLAGS := -g -Wall -Wpointer-sign -Wno-unused-variable \
+	-Wno-unused-result -pipe \
+	-I$(src)/$(IFORD)/include -I$(src)/../include/$(IFORD) \
+	-I$(srctree)/drivers/sstar/include \
+	-I$(srctree)/drivers/sstar/include/$(IFORD) \
+	-include linux/version.h -DALKAID_SDK
+# CONFIG_ENABLE_MI_NORMAL_STR = y in that defconfig (suspend to RAM)
+IFORD_CFLAGS += -DCONFIG_ENABLE_MI_NORMAL_STR
+
+upper = $(shell echo $(1) | tr a-z A-Z)
+
+define iford_module
+obj-m += $(MI_PREFIX)$(1).o
+$(MI_PREFIX)$(1)-y := $(IFORD)/obj/$(1).o \
+	$(addprefix $(IFORD)/init/$(1)/,$(init-$(1)))
+$(foreach o,$(init-$(1)),
+CFLAGS_$(IFORD)/init/$(1)/$(o) := \
+	$(foreach d,$(1) $(dep-$(1)),-I$(src)/$(IFORD)/init/$(d)) \
+	$(IFORD_CFLAGS) $(flags-$(1)) \
+	-DEXTRA_MODULE_NAME=$(1) -DCONFIG_MI_$(call upper,$(1))=1)
+endef
+
+$(foreach m,$(IFORD_MODULES),$(eval $(call iford_module,$(m))))
