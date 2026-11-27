@@ -18,6 +18,64 @@ so it can be fixed and does not depend on a blob built for one kernel.
 | iford | SSC029A, SSC029B, SSC029C | `iford` | SigmaStar's Iford SDK IMD00V2.1.0 kernel (5.10.117); no OpenIPC kernel yet |
 | ifliegen | SSC034A, SSC034B | `ifliegen` | SigmaStar's Ifliegen SDK ILSSV01C12 kernel (4.9.84); no OpenIPC kernel yet |
 
+## SigmaStar families in OpenIPC
+
+The families OpenIPC firmware builds for: the SoCs it has a configuration
+for, the kernel, and the package that brings the media stack. The code in
+brackets is the board the firmware's device tree names, which is what
+`/sys/devices/soc0/machine` shows on OpenIPC (for example
+`INFINITY6 SSC009A-S01A QFN88`); on OpenIPC it follows the build, not the
+chip.
+
+| Family | Codename | Chip ID | SoCs (board) | OpenIPC kernel | Firmware package |
+|--------|----------|---------|--------------|----------------|------------------|
+| infinity2m | Taiyaki | 0xF0 (240) | SSR621Q (`ssc010a`) | [`sigmastar-infinity2m`](https://github.com/OpenIPC/linux/tree/sigmastar-infinity2m) (4.9.84) | [`sigmastar-osdrv-infinity2m`](https://github.com/OpenIPC/firmware/tree/master/general/package/sigmastar-osdrv-infinity2m), [`sigmastar-opensdk`](https://github.com/OpenIPC/firmware/tree/master/general/package/sigmastar-opensdk) |
+| infinity3 | — | 0xC2 (194) | MSC313E, MSC316DC, MSC316DM | [`sigmastar-infinity3`](https://github.com/OpenIPC/linux/tree/sigmastar-infinity3) (3.18.30) | [`sigmastar-osdrv-msc313e`](https://github.com/OpenIPC/firmware/tree/master/general/package/legacy/sigmastar-osdrv-msc313e) |
+| infinity6 | Macaron | 0xEF (239) | SSC325 (`ssc009a`), SSC325DE (`ssc009b`) | [`sigmastar-infinity6`](https://github.com/OpenIPC/linux/tree/sigmastar-infinity6) (4.9.84) | [`sigmastar-osdrv-infinity6`](https://github.com/OpenIPC/firmware/tree/master/general/package/sigmastar-osdrv-infinity6) |
+| infinity6b0 | Ispahan | 0xF2 (242) | SSC333, SSC335, SSC337 (`ssc009a`); SSC335DE, SSC337DE (`ssc009b`) | [`sigmastar-infinity6b0`](https://github.com/OpenIPC/linux/tree/sigmastar-infinity6b0) (4.9.84) | [`sigmastar-osdrv-infinity6b0`](https://github.com/OpenIPC/firmware/tree/master/general/package/sigmastar-osdrv-infinity6b0) |
+| infinity6e | Pudding | 0xF1 (241) | SSC30KD, SSC30KQ, SSC338Q (`ssc012b`) | [`sigmastar-infinity6e`](https://github.com/OpenIPC/linux/tree/sigmastar-infinity6e) (4.9.84) | [`sigmastar-osdrv-infinity6e`](https://github.com/OpenIPC/firmware/tree/master/general/package/sigmastar-osdrv-infinity6e) |
+| infinity6c | Maruko | 0xF9 (249) | SSC377, SSC377D (`ssc027a`); SSC377DE, SSC377QE, SSC378DE, SSC378QE (`ssc027d`) | [`sigmastar-infinity6c`](https://github.com/OpenIPC/linux/tree/sigmastar-infinity6c) (5.10.61) | [`sigmastar-osdrv-infinity6c`](https://github.com/OpenIPC/firmware/tree/master/general/package/sigmastar-osdrv-infinity6c) |
+
+### Chip IDs
+
+Every SigmaStar SoC reports its family in the register at `0x1F003C00`, and
+the vendor kernels show the same number in `/sys/class/mstar/msys/CHIP_ID`
+(hex) and `/sys/devices/soc0/soc_id` (decimal). It names the family only,
+not the part. The chip IDs are from
+[ipctool](https://github.com/OpenIPC/ipctool/blob/master/src/hal/sstar.h):
+
+| Chip ID | Family | Codename |
+|---------|--------|----------|
+| 0xC2 (194) | infinity3 | — |
+| 0xED (237) | infinity5 | Pretzel |
+| 0xEE (238) | mercury5 | — |
+| 0xEF (239) | infinity6 | Macaron |
+| 0xF0 (240) | infinity2m | Taiyaki |
+| 0xF1 (241) | infinity6e | Pudding |
+| 0xF2 (242) | infinity6b0 | Ispahan |
+| 0xF4 (244) | mercury6 | Tiramisu |
+| 0xF5 (245) | pioneer3 | Ikayaki |
+| 0xF9 (249) | infinity6c | Maruko |
+| 0xFB (251) | infinity6f | Souffle |
+| — | — | Muffin |
+| — | — | Mochi |
+| — | — | Opera |
+| — | — | Ifado |
+| — | infinity6d | Iford |
+| — | — | Pcupid |
+| — | — | Ibopper |
+| — | — | Ifackel |
+| — | — | Jaguar1 |
+| — | infinity6g (probably) | Ifliegen |
+
+The codenames without a chip ID are SigmaStar's too; which register value
+and, for most, which family they go with is not known here yet. What is
+known of the parts behind some of them:
+
+- Ifado: SSC373, board `SSC032B-S01A`.
+- Ifliegen: SSC385, board `SSC034A-S01A`. The boards are named by package
+  here: `SSC034A-S01A` is QFN128, `SSC034B-S01A` QFN88.
+
 ## Modules
 
 Two kinds, as in openhisilicon:
