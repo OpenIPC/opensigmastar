@@ -8,11 +8,18 @@
  *   /sys/kernel/open_hdmi/output   write 1080p60 | 1080p50 | 720p60 |
  *                                      720p50 | 1024x768p60 | 1280x1024p60 |
  *                                      off; read: current
+ *   /sys/kernel/open_hdmi/audio    write 48000 | 44100 | 32000 | off:
+ *                                      the audio the transmitter sends
+ *                                      (2-channel PCM from the chip's audio
+ *                                      block, MI_AO); read: current. Kept
+ *                                      across output switches and set
+ *                                      again at once while on
  *   /sys/kernel/open_hdmi/hpd      1 when a sink is plugged in
  *   /sys/kernel/open_hdmi/edid     the sink's EDID block 0 (binary)
  *
  * Module parameters: output= switches on at load, color=yuv444|rgb444
- * (what goes out; the display feeds YUV444).
+ * (what goes out; the display feeds YUV444), audio= as the file (default
+ * off: no audio packets, as before).
  */
 #include <linux/kernel.h>
 #include <linux/kobject.h>
@@ -31,6 +38,18 @@ MODULE_PARM_DESC(output, "timing to switch on at load, e.g. 1080p60");
 static char *color = "yuv444";
 module_param(color, charp, 0444);
 MODULE_PARM_DESC(color, "output colour: yuv444 or rgb444");
+static char *audio = "off";
+module_param(audio, charp, 0444);
+MODULE_PARM_DESC(audio, "HDMI audio: 48000, 44100, 32000 or off");
+
+static const struct {
+	const char *name;
+	MhalHdmitxAudioFreqType_e freq;
+} audio_rates[] = {
+	{ "48000", E_MHAL_HDMITX_AUDIO_FREQ_48K },
+	{ "44100", E_MHAL_HDMITX_AUDIO_FREQ_44K },
+	{ "32000", E_MHAL_HDMITX_AUDIO_FREQ_32K },
+};
 
 static const struct {
 	const char *name;
@@ -50,6 +69,7 @@ static const struct {
 static DEFINE_MUTEX(lock);
 static void *ctx;
 static int cur = -1;            /* index into timings, -1 off */
+static int cur_audio = -1;      /* index into audio_rates, -1 off */
 static struct kobject *kobj;
 
 static int hdmi_off(void)
@@ -97,8 +117,12 @@ static int hdmi_on(int t)
 	attr.enColorDepth = E_MHAL_HDMITX_CD_24_BITS;
 	attr.enOutputMode = E_MHAL_HDMITX_OUTPUT_MODE_HDMI;
 	attr.enTiming = timings[t].res;
-	attr.bAudioEn = false;
-	attr.enAudioFreq = E_MHAL_HDMITX_AUDIO_FREQ_48K;
+	/* The chip's audio block feeds the transmitter itself (no I2S/SPDIF
+	 * to choose); with audio on, the transmitter sends N/CTS for the rate,
+	 * the channel status and the audio infoframe. */
+	attr.bAudioEn = cur_audio >= 0;
+	attr.enAudioFreq = cur_audio >= 0 ? audio_rates[cur_audio].freq :
+					    E_MHAL_HDMITX_AUDIO_FREQ_48K;
 	attr.enAudioCh = E_MHAL_HDMITX_AUDIO_CH_2;
 	attr.enAudioCode = E_MHAL_HDMITX_AUDIO_CODING_PCM;
 	attr.enAudioFmt = E_MHAL_HDMITX_AUDIO_FORMAT_PCM;
@@ -113,7 +137,8 @@ static int hdmi_on(int t)
 	MhalHdmitxSetSignal(ctx, &sig);
 	MhalHdmitxSetMute(ctx, &mute);
 	cur = t;
-	pr_info("open_hdmi: %s %s%s\n", timings[t].name, color,
+	pr_info("open_hdmi: %s %s, audio %s%s\n", timings[t].name, color,
+		cur_audio >= 0 ? audio_rates[cur_audio].name : "off",
 		r == E_MHAL_HDMITX_RET_HPDERR ? " (no sink yet)" : "");
 	return 0;
 }
@@ -137,6 +162,45 @@ static int set_output(const char *s)
 	}
 	mutex_unlock(&lock);
 	return ret;
+}
+
+/* The audio rate, or off; while on, the attributes set again at once. */
+static int set_audio(const char *s)
+{
+	size_t n = strcspn(s, "\n");
+	int i, want = -2, ret = 0;
+
+	if (n == 3 && !strncmp(s, "off", 3))
+		want = -1;
+	for (i = 0; i < ARRAY_SIZE(audio_rates); i++)
+		if (strlen(audio_rates[i].name) == n &&
+		    !strncmp(s, audio_rates[i].name, n))
+			want = i;
+	if (want == -2)
+		return -EINVAL;
+	mutex_lock(&lock);
+	if (want != cur_audio) {
+		cur_audio = want;
+		if (cur >= 0)
+			ret = hdmi_on(cur);
+	}
+	mutex_unlock(&lock);
+	return ret;
+}
+
+static ssize_t audio_show(struct kobject *k, struct kobj_attribute *a,
+			  char *buf)
+{
+	return sprintf(buf, "%s\n", cur_audio < 0 ? "off" :
+				    audio_rates[cur_audio].name);
+}
+
+static ssize_t audio_store(struct kobject *k, struct kobj_attribute *a,
+			   const char *buf, size_t len)
+{
+	int ret = set_audio(buf);
+
+	return ret < 0 ? ret : len;
 }
 
 static ssize_t output_show(struct kobject *k, struct kobj_attribute *a,
@@ -193,11 +257,13 @@ static ssize_t edid_show(struct kobject *k, struct kobj_attribute *a,
 }
 
 static struct kobj_attribute output_attr = __ATTR_RW(output);
+static struct kobj_attribute audio_attr = __ATTR_RW(audio);
 static struct kobj_attribute hpd_attr = __ATTR_RO(hpd);
 static struct kobj_attribute edid_attr = __ATTR_RO(edid);
 
 static struct attribute *attrs[] = {
-	&output_attr.attr, &hpd_attr.attr, &edid_attr.attr, NULL,
+	&output_attr.attr, &audio_attr.attr, &hpd_attr.attr, &edid_attr.attr,
+	NULL,
 };
 
 static const struct attribute_group group = { .attrs = attrs };
@@ -214,6 +280,9 @@ static int __init open_hdmi_init(void)
 		kobject_put(kobj);
 		return ret;
 	}
+	if (audio && *audio && set_audio(audio) < 0)
+		pr_warn("open_hdmi: audio=%s: 48000, 44100, 32000 or off\n",
+			audio);
 	if (output && *output && set_output(output) < 0)
 		pr_warn("open_hdmi: output=%s failed\n", output);
 	return 0;
